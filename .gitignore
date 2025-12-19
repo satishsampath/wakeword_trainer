@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Training data and outputs
+# Keep the directory structure but ignore actual audio files and models
+data/positive/*.wav
+data/positive/*.mp3
+data/negative/*.wav
+data/negative/*.mp3
+output/*.pt
+output/*.onnx
+output/*.json
+
+# Augmented data
+data/augmented/
+
+# TTS generated files
+data/tts_raw/
+
+# Converted files
+data/wav_converted/
+
+# Embeddings cache
+data/embeddings_*/
+
+# Legacy hey_nevyx folder (if still present)
+hey_nevyx/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# User configuration (contains API keys)
+user_config.json
