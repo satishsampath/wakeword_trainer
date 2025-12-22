@@ -34,19 +34,22 @@ test_file = wav_files[0]
 print(f"\nTesting with: {test_file}")
 
 # Load audio
-waveform, sr = torchaudio.load(test_file)
-print(f"Original sample rate: {sr}, shape: {waveform.shape}")
+import soundfile as sf
+from scipy import signal
 
-if sr != SAMPLE_RATE:
-    resampler = torchaudio.transforms.Resample(sr, SAMPLE_RATE)
-    waveform = resampler(waveform)
-    print(f"Resampled to: {SAMPLE_RATE}Hz")
+audio, sr = sf.read(test_file, dtype='float32')
+print(f"Original sample rate: {sr}, shape: {audio.shape}")
 
-if waveform.shape[0] > 1:
-    waveform = waveform.mean(dim=0, keepdim=True)
+# Convert to mono if stereo
+if len(audio.shape) > 1:
+    audio = audio.mean(axis=1)
     print("Converted to mono")
 
-audio = waveform.squeeze().numpy()
+# Resample if needed
+if sr != SAMPLE_RATE:
+    num_samples = int(len(audio) * SAMPLE_RATE / sr)
+    audio = signal.resample(audio, num_samples)
+    print(f"Resampled to: {SAMPLE_RATE}Hz")
 print(f"Audio shape: {audio.shape}, duration: {len(audio)/SAMPLE_RATE:.2f}s")
 
 # Pad if needed

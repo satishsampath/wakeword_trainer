@@ -43,9 +43,16 @@ data/positive/*.wav
 data/positive/*.mp3
 data/negative/*.wav
 data/negative/*.mp3
+data/confusable/*.wav
+data/confusable/*.mp3
+data/background_noise/*.wav
 output/*.pt
 output/*.onnx
 output/*.json
+output/*.bak
+
+# Base models (downloaded by setup.py)
+models/*.onnx
 
 # Augmented data
 data/augmented/

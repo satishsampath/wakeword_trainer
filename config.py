@@ -13,10 +13,10 @@ from pathlib import Path
 # =============================================================================
 
 # The wake word phrase you want to train (e.g., "Hey Jarvis", "OK Computer")
-WAKE_WORD = "Hey Assistant"
+WAKE_WORD = "Hey Nevyx"
 
 # Model name (used for output filenames, should be lowercase with underscores)
-MODEL_NAME = "hey_assistant"
+MODEL_NAME = "hey_nevyx"
 
 # =============================================================================
 # DIRECTORY CONFIGURATION
@@ -33,18 +33,27 @@ OUTPUT_DIR = Path(__file__).parent / "output"
 # OPENWAKEWORD MODEL PATHS (for embedding-based training)
 # =============================================================================
 
-# Directory containing OpenWakeWord's melspectrogram.onnx and embedding_model.onnx
 # These models are required for train_openwakeword.py
+# The setup.py script will download them automatically.
 #
-# You can download them from:
-# https://github.com/dscripka/openWakeWord/tree/main/openwakeword/resources/models
-#
-# Or if you have OpenWakeWord installed via pip, find them at:
-# <python-env>/lib/python3.x/site-packages/openwakeword/resources/models/
-OPENWAKEWORD_MODELS_DIR = Path(os.path.expanduser("~")) / ".openwakeword" / "models"
+# Search order:
+# 1. Local 'models/' directory (created by setup.py)
+# 2. User's ~/.openwakeword/models/ directory
 
-MEL_MODEL_PATH = OPENWAKEWORD_MODELS_DIR / "melspectrogram.onnx"
-EMBEDDING_MODEL_PATH = OPENWAKEWORD_MODELS_DIR / "embedding_model.onnx"
+def _find_model(name):
+    """Find a model file in known locations."""
+    locations = [
+        Path(__file__).parent / "models" / name,  # Local models/ dir
+        Path(os.path.expanduser("~")) / ".openwakeword" / "models" / name,  # User dir
+    ]
+    for path in locations:
+        if path.exists():
+            return path
+    # Return default path (will error later if not found)
+    return locations[0]
+
+MEL_MODEL_PATH = _find_model("melspectrogram.onnx")
+EMBEDDING_MODEL_PATH = _find_model("embedding_model.onnx")
 
 # =============================================================================
 # AUDIO PARAMETERS

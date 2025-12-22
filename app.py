@@ -148,13 +148,52 @@ class WakeWordTrainerApp:
         row += 1
 
         # Generate button
-        self.generate_btn = ttk.Button(main_frame, text="Generate TTS Audio", command=self.generate_audio)
-        self.generate_btn.grid(row=row, column=0, columnspan=3, pady=15)
+        self.generate_btn = ttk.Button(main_frame, text="Generate Positive Audio (Wake Word)", command=self.generate_audio)
+        self.generate_btn.grid(row=row, column=0, columnspan=3, pady=10)
         row += 1
 
         # Separator
         ttk.Separator(main_frame, orient="horizontal").grid(
-            row=row, column=0, columnspan=3, sticky="ew", pady=15
+            row=row, column=0, columnspan=3, sticky="ew", pady=10
+        )
+        row += 1
+
+        # === Negative Samples Section ===
+        ttk.Label(main_frame, text="Generate Negative Samples", font=("", 12, "bold")).grid(
+            row=row, column=0, columnspan=3, sticky="w", pady=(0, 10)
+        )
+        row += 1
+
+        ttk.Label(main_frame, text="Negative samples help reduce false positives:", foreground="gray").grid(
+            row=row, column=0, columnspan=3, sticky="w"
+        )
+        row += 1
+
+        # Negative sample options
+        neg_frame = ttk.Frame(main_frame)
+        neg_frame.grid(row=row, column=0, columnspan=3, sticky="w", pady=5)
+
+        self.gen_confusables_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(neg_frame, text="Confusable words (similar-sounding)",
+                       variable=self.gen_confusables_var).pack(side="left", padx=(0, 15))
+
+        self.gen_common_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(neg_frame, text="Common phrases",
+                       variable=self.gen_common_var).pack(side="left", padx=(0, 15))
+
+        self.gen_silence_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(neg_frame, text="Silence/noise",
+                       variable=self.gen_silence_var).pack(side="left")
+        row += 1
+
+        self.gen_negatives_btn = ttk.Button(main_frame, text="Generate Negative Samples",
+                                           command=self.generate_negatives)
+        self.gen_negatives_btn.grid(row=row, column=0, columnspan=3, pady=10)
+        row += 1
+
+        # Separator
+        ttk.Separator(main_frame, orient="horizontal").grid(
+            row=row, column=0, columnspan=3, sticky="ew", pady=10
         )
         row += 1
 
@@ -235,11 +274,36 @@ class WakeWordTrainerApp:
 
         # Log startup
         self.log("Wake Word Trainer started")
+        self.log(f"Python: {sys.executable} ({sys.version.split()[0]})")
         self.log(f"Data directory: {DATA_DIR}")
         self.log(f"Output directory: {OUTPUT_DIR}")
 
+        # Check for required packages
+        self._check_packages()
+
     def toggle_show(self, entry, var):
         entry.config(show="" if var.get() else "*")
+
+    def _check_packages(self):
+        """Check and report package availability at startup."""
+        packages = {
+            "openai": "TTS generation",
+            "elevenlabs": "TTS generation",
+            "pydub": "MP3 to WAV conversion",
+            "torch": "Model training",
+            "torchaudio": "Audio processing",
+        }
+        missing = []
+        for pkg, purpose in packages.items():
+            try:
+                __import__(pkg)
+                self.log(f"  {pkg}: OK")
+            except ImportError:
+                self.log(f"  {pkg}: NOT FOUND ({purpose})")
+                missing.append(pkg)
+
+        if missing:
+            self.log(f"\nTo install missing packages: pip install {' '.join(missing)}")
 
     def load_config(self):
         if CONFIG_FILE.exists():
@@ -391,17 +455,18 @@ class WakeWordTrainerApp:
                         try:
                             self.log(f"Generating: {voice.name}...")
 
-                            audio = client.generate(
+                            # Use the new API method
+                            audio_generator = client.text_to_speech.convert(
                                 text=wake_word,
-                                voice=voice.voice_id,
-                                model="eleven_multilingual_v2"
+                                voice_id=voice.voice_id,
+                                model_id="eleven_multilingual_v2"
                             )
 
                             filename = f"elevenlabs_{voice.voice_id[:8]}.mp3"
                             filepath = positive_dir / filename
 
                             with open(filepath, "wb") as f:
-                                for chunk in audio:
+                                for chunk in audio_generator:
                                     f.write(chunk)
 
                             elevenlabs_count += 1
@@ -435,36 +500,291 @@ class WakeWordTrainerApp:
 
     def _convert_mp3_to_wav(self, directory):
         """Convert MP3 files to WAV format."""
-        try:
-            import torchaudio
+        mp3_files = list(directory.glob("*.mp3"))
+        if not mp3_files:
+            self.log("No MP3 files to convert")
+            return
 
-            mp3_files = list(directory.glob("*.mp3"))
+        converted = 0
+
+        # Try pydub first (requires ffmpeg)
+        try:
+            from pydub import AudioSegment
+
             for mp3_path in mp3_files:
                 try:
                     wav_path = mp3_path.with_suffix(".wav")
 
-                    # Load and convert
-                    waveform, sr = torchaudio.load(str(mp3_path))
+                    # Load MP3 and convert
+                    audio = AudioSegment.from_mp3(str(mp3_path))
 
-                    # Resample to 16kHz if needed
-                    if sr != 16000:
-                        resampler = torchaudio.transforms.Resample(sr, 16000)
-                        waveform = resampler(waveform)
+                    # Convert to mono 16kHz
+                    audio = audio.set_channels(1).set_frame_rate(16000)
 
-                    # Convert to mono
-                    if waveform.shape[0] > 1:
-                        waveform = waveform.mean(dim=0, keepdim=True)
+                    # Export as WAV
+                    audio.export(str(wav_path), format="wav")
 
-                    # Save as WAV
-                    torchaudio.save(str(wav_path), waveform, 16000)
+                    # Remove original MP3
+                    mp3_path.unlink()
+                    converted += 1
                     self.log(f"Converted: {mp3_path.name} -> {wav_path.name}")
 
                 except Exception as e:
                     self.log(f"  Error converting {mp3_path.name}: {e}")
 
+            if converted > 0:
+                self.log(f"Converted {converted} files using pydub")
+                return
+
         except ImportError:
-            self.log("Warning: torchaudio not installed, skipping MP3 to WAV conversion")
-            self.log("Run: pip install torchaudio")
+            self.log("pydub not available, trying alternative...")
+        except Exception as e:
+            self.log(f"pydub failed: {e}, trying alternative...")
+
+        # Fallback: try soundfile + audioread
+        try:
+            import soundfile as sf
+            import numpy as np
+
+            for mp3_path in mp3_files:
+                try:
+                    wav_path = mp3_path.with_suffix(".wav")
+
+                    # Use audioread as backend
+                    import audioread
+                    with audioread.audio_open(str(mp3_path)) as f:
+                        sr = f.samplerate
+                        channels = f.channels
+                        data = []
+                        for block in f:
+                            data.append(np.frombuffer(block, dtype=np.int16))
+                        audio = np.concatenate(data)
+
+                    # Convert to float
+                    audio = audio.astype(np.float32) / 32768.0
+
+                    # Convert to mono if stereo
+                    if channels > 1:
+                        audio = audio.reshape(-1, channels).mean(axis=1)
+
+                    # Resample to 16kHz if needed
+                    if sr != 16000:
+                        from scipy import signal
+                        num_samples = int(len(audio) * 16000 / sr)
+                        audio = signal.resample(audio, num_samples)
+
+                    # Save as WAV
+                    sf.write(str(wav_path), audio, 16000)
+                    mp3_path.unlink()
+                    converted += 1
+                    self.log(f"Converted: {mp3_path.name} -> {wav_path.name}")
+
+                except Exception as e:
+                    self.log(f"  Error converting {mp3_path.name}: {e}")
+
+            if converted > 0:
+                self.log(f"Converted {converted} files using soundfile")
+                return
+
+        except ImportError:
+            pass
+
+        # If all else fails, keep MP3 files - training script can try to load them
+        if converted == 0:
+            self.log("WARNING: Could not convert MP3 to WAV")
+            self.log("Install ffmpeg for pydub: https://ffmpeg.org/download.html")
+            self.log("Or run: pip install audioread")
+            self.log("MP3 files kept - training may still work with librosa")
+
+    def generate_negatives(self):
+        """Generate negative training samples."""
+        wake_word = self.wake_word_var.get().strip()
+        if not wake_word:
+            messagebox.showerror("Error", "Please enter a wake word")
+            return
+
+        openai_key = self.openai_key_var.get().strip()
+        if not openai_key and (self.gen_confusables_var.get() or self.gen_common_var.get()):
+            messagebox.showerror("Error", "OpenAI API key required for TTS generation")
+            return
+
+        if not self.gen_confusables_var.get() and not self.gen_common_var.get() and not self.gen_silence_var.get():
+            messagebox.showerror("Error", "Please select at least one type of negative sample")
+            return
+
+        self.gen_negatives_btn.config(state="disabled")
+        self.set_status("Generating negative samples...")
+
+        thread = threading.Thread(target=self._generate_negatives_thread)
+        thread.daemon = True
+        thread.start()
+
+    def _generate_negatives_thread(self):
+        """Background thread for negative sample generation."""
+        try:
+            wake_word = self.wake_word_var.get().strip()
+            openai_key = self.openai_key_var.get().strip()
+            total_generated = 0
+
+            # Import the generator functions
+            try:
+                from augmentation import generate_confusable_words, get_common_phrases
+            except ImportError:
+                self.log("Warning: augmentation module not found, using fallback")
+                generate_confusable_words = lambda w: ["hey there", "hey you", "okay"]
+                get_common_phrases = lambda: ["hello", "thank you", "what time is it"]
+
+            # Generate confusable samples
+            if self.gen_confusables_var.get():
+                self.log("\n=== Generating Confusable Samples ===")
+                confusables = generate_confusable_words(wake_word)
+                self.log(f"Found {len(confusables)} confusable words/phrases")
+
+                try:
+                    from openai import OpenAI
+                    client = OpenAI(api_key=openai_key)
+
+                    confusable_dir = DATA_DIR / "confusable"
+                    confusable_dir.mkdir(parents=True, exist_ok=True)
+
+                    voices = ["alloy", "echo", "fable", "nova", "onyx", "shimmer"]
+                    for i, text in enumerate(confusables[:30]):  # Limit to 30
+                        voice = voices[i % len(voices)]
+                        self.log(f"  Generating: '{text}' ({voice})")
+
+                        try:
+                            response = client.audio.speech.create(
+                                model="tts-1-hd",
+                                voice=voice,
+                                input=text,
+                                speed=1.0
+                            )
+                            safe_name = "".join(c if c.isalnum() else "_" for c in text)[:30]
+                            filepath = confusable_dir / f"confusable_{safe_name}_{voice}.mp3"
+                            response.stream_to_file(str(filepath))
+                            total_generated += 1
+                        except Exception as e:
+                            self.log(f"    Error: {e}")
+
+                    self.log(f"Generated {total_generated} confusable samples")
+
+                except ImportError:
+                    self.log("Error: openai package not installed")
+
+            # Generate common phrase samples
+            if self.gen_common_var.get():
+                self.log("\n=== Generating Common Phrase Samples ===")
+                phrases = get_common_phrases()
+                self.log(f"Generating {len(phrases)} common phrases")
+
+                try:
+                    from openai import OpenAI
+                    client = OpenAI(api_key=openai_key)
+
+                    negative_dir = DATA_DIR / "negative"
+                    negative_dir.mkdir(parents=True, exist_ok=True)
+
+                    voices = ["alloy", "echo", "fable", "nova", "onyx", "shimmer"]
+                    neg_count = 0
+                    for i, text in enumerate(phrases):
+                        voice = voices[i % len(voices)]
+                        self.log(f"  Generating: '{text}' ({voice})")
+
+                        try:
+                            response = client.audio.speech.create(
+                                model="tts-1-hd",
+                                voice=voice,
+                                input=text,
+                                speed=1.0
+                            )
+                            safe_name = "".join(c if c.isalnum() else "_" for c in text)[:30]
+                            filepath = negative_dir / f"negative_{safe_name}_{voice}.mp3"
+                            response.stream_to_file(str(filepath))
+                            neg_count += 1
+                            total_generated += 1
+                        except Exception as e:
+                            self.log(f"    Error: {e}")
+
+                    self.log(f"Generated {neg_count} common phrase samples")
+
+                except ImportError:
+                    self.log("Error: openai package not installed")
+
+            # Generate silence samples
+            if self.gen_silence_var.get():
+                self.log("\n=== Generating Silence/Noise Samples ===")
+                try:
+                    import numpy as np
+                    from scipy.io import wavfile
+
+                    negative_dir = DATA_DIR / "negative"
+                    negative_dir.mkdir(parents=True, exist_ok=True)
+
+                    silence_count = 10
+                    for i in range(silence_count):
+                        samples = 16000 * 2  # 2 seconds at 16kHz
+                        noise_level = 0.001 * (i + 1) / silence_count
+                        # Generate noise and convert to int16
+                        audio = (np.random.randn(samples) * noise_level * 32767).astype(np.int16)
+
+                        filepath = negative_dir / f"silence_{i:03d}.wav"
+                        wavfile.write(str(filepath), 16000, audio)
+                        total_generated += 1
+
+                    self.log(f"Generated {silence_count} silence samples")
+
+                except ImportError as e:
+                    self.log(f"Error generating silence: {e}")
+
+            # Convert MP3 to WAV
+            self.log("\n=== Converting to WAV ===")
+            self._convert_all_mp3_to_wav()
+
+            self.log(f"\nDone! Generated {total_generated} total negative samples")
+            self.root.after(0, lambda: self.set_status(f"Generated {total_generated} negative samples"))
+            self.root.after(0, lambda: messagebox.showinfo("Success",
+                f"Generated {total_generated} negative samples!\n\n"
+                f"Confusables: data/confusable/\n"
+                f"Negatives: data/negative/"))
+
+        except Exception as e:
+            self.log(f"Error: {e}")
+            self.root.after(0, lambda: messagebox.showerror("Error", str(e)))
+        finally:
+            self.root.after(0, lambda: self.gen_negatives_btn.config(state="normal"))
+
+    def _convert_all_mp3_to_wav(self):
+        """Convert all MP3 files in data directories to WAV."""
+        try:
+            from pydub import AudioSegment
+
+            converted = 0
+            for subdir in ["positive", "negative", "confusable"]:
+                directory = DATA_DIR / subdir
+                if not directory.exists():
+                    continue
+
+                mp3_files = list(directory.glob("*.mp3"))
+                for mp3_path in mp3_files:
+                    try:
+                        wav_path = mp3_path.with_suffix(".wav")
+                        if wav_path.exists():
+                            mp3_path.unlink()
+                            continue
+
+                        audio = AudioSegment.from_mp3(str(mp3_path))
+                        audio = audio.set_channels(1).set_frame_rate(16000)
+                        audio.export(str(wav_path), format="wav")
+                        mp3_path.unlink()
+                        converted += 1
+                        self.log(f"  Converted: {mp3_path.name}")
+                    except Exception as e:
+                        self.log(f"  Error converting {mp3_path.name}: {e}")
+
+            self.log(f"Converted {converted} MP3 files to WAV")
+
+        except ImportError:
+            self.log("Warning: pydub not installed. Run: pip install pydub")
 
     def train_model(self):
         """Train the wake word model."""
@@ -556,8 +876,8 @@ class WakeWordTrainerApp:
     def _augment_data(self):
         """Apply data augmentation to training files."""
         try:
-            import torchaudio
-            import torch
+            import soundfile as sf
+            import numpy as np
             import random
 
             positive_dir = DATA_DIR / "positive"
@@ -571,21 +891,21 @@ class WakeWordTrainerApp:
                     continue
 
                 try:
-                    waveform, sr = torchaudio.load(str(wav_path))
+                    audio, sr = sf.read(str(wav_path), dtype='float32')
                     base_name = wav_path.stem
 
                     # Noise augmentation
                     noise_level = random.uniform(0.002, 0.01)
-                    noisy = waveform + torch.randn_like(waveform) * noise_level
+                    noisy = audio + np.random.randn(*audio.shape).astype(np.float32) * noise_level
                     noisy_path = positive_dir / f"{base_name}_aug_noise.wav"
-                    torchaudio.save(str(noisy_path), noisy, sr)
+                    sf.write(str(noisy_path), noisy, sr)
                     augmented_count += 1
 
                     # Volume augmentation
                     gain = random.uniform(0.7, 1.3)
-                    vol_adjusted = waveform * gain
+                    vol_adjusted = audio * gain
                     vol_path = positive_dir / f"{base_name}_aug_vol.wav"
-                    torchaudio.save(str(vol_path), vol_adjusted, sr)
+                    sf.write(str(vol_path), vol_adjusted, sr)
                     augmented_count += 1
 
                 except Exception as e:
@@ -594,7 +914,7 @@ class WakeWordTrainerApp:
             self.log(f"Created {augmented_count} augmented samples")
 
         except ImportError:
-            self.log("Warning: torchaudio not installed, skipping augmentation")
+            self.log("Warning: soundfile not installed, skipping augmentation")
 
     def export_model(self):
         """Export the trained model to ONNX format."""

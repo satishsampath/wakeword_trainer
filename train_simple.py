@@ -62,16 +62,22 @@ class WakeWordDataset(Dataset):
         return len(self.samples)
 
     def __getitem__(self, idx):
-        waveform, sr = torchaudio.load(self.samples[idx])
+        import soundfile as sf
+        from scipy import signal
+
+        audio, sr = sf.read(self.samples[idx], dtype='float32')
+
+        # Convert to mono if stereo
+        if len(audio.shape) > 1:
+            audio = audio.mean(axis=1)
 
         # Resample if needed
         if sr != SAMPLE_RATE:
-            resampler = torchaudio.transforms.Resample(sr, SAMPLE_RATE)
-            waveform = resampler(waveform)
+            num_samples = int(len(audio) * SAMPLE_RATE / sr)
+            audio = signal.resample(audio, num_samples)
 
-        # Convert to mono
-        if waveform.shape[0] > 1:
-            waveform = waveform.mean(dim=0, keepdim=True)
+        # Convert to tensor [1, samples]
+        waveform = torch.from_numpy(audio).unsqueeze(0)
 
         # Pad or trim to fixed length (1.5 seconds)
         target_length = int(SAMPLE_RATE * 1.5)
