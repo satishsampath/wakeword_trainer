@@ -13,10 +13,10 @@ from pathlib import Path
 # =============================================================================
 
 # The wake word phrase you want to train (e.g., "Hey Jarvis", "OK Computer")
-WAKE_WORD = "Hey Nevyx"
+WAKE_WORD = "listen up tackle"
 
 # Model name (used for output filenames, should be lowercase with underscores)
-MODEL_NAME = "hey_nevyx"
+MODEL_NAME = "listen_up_tackle"
 
 # =============================================================================
 # DIRECTORY CONFIGURATION
