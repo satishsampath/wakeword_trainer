@@ -1,0 +1,42 @@
+How to eliminate false positives from the wake word model
+=========================================================
+
+Prerequisites:
+- Python 3.12 at C:\python312\python.exe
+- ffmpeg installed (C:\ffmpeg\bin\ffmpeg.exe or on PATH)
+- An MP3 file of conversational speech to test against
+
+Step 1: Scan for false positives and save clips
+-------------------------------------------------
+cd C:\usbdrive\skr\gitrepos\wakeword_trainer
+C:\python312\python.exe verify_false_positives.py "C:\path\to\input.mp3" --save
+
+This runs the same 3-model ONNX pipeline as the Android app, prints each
+detection with its score and timestamp, and saves 16-second WAV clips to
+data/confusable/ for use as hard negatives during retraining.
+
+Omit --save to just count without saving clips.
+
+Step 2: Retrain the model
+--------------------------
+cd C:\usbdrive\skr\gitrepos\wakeword_trainer
+C:\python312\python.exe train_openwakeword_streaming.py
+
+This picks up all WAVs in data/confusable/ as hard negatives, augments
+them, and trains a new streaming GRU model. Output: output/listen_up_tackle.onnx
+
+Step 3: Verify zero false positives
+-------------------------------------
+C:\python312\python.exe verify_false_positives.py "C:\path\to\input.mp3"
+
+Expected: 0 false positives. If not zero, repeat from step 1 with --save
+to collect the remaining false positive clips, then retrain.
+
+Step 4: Deploy to tackl
+-------------------------
+Copy the model:
+  cp output/listen_up_tackle.onnx ../tackl/app/src/main/assets/listen_up_tackle.onnx
+
+Build and install:
+  cd C:\usbdrive\skr\gitrepos\tackl
+  ./gradlew.bat installDebug
